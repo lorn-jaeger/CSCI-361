@@ -1,0 +1,126 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Central Processing Unit (CPU).
+ * This CPU executes Hack machine language instructions by using:
+ * - An Arithmetic Logic Unit (ALU) to perform computations.
+ * - A and D registers for storing intermediate values.
+ * - A program counter (PC) to determine the next instruction.
+ * - A control unit that handles memory reads/writes and conditional jumps.
+ *
+ * The CPU operates in two instruction modes:
+ * - A-instruction (instruction[15] = 0): Loads a value into the A register.
+ * - C-instruction (instruction[15] = 1): Performs computation and may store the result
+ *   in A, D, or RAM, and can also modify the program counter for jumps.
+ *
+ * The CPU interacts with memory through:
+ * - `inM`: The value currently stored in RAM[A] (memory input).
+ * - `outM`: The value to be written to RAM[A] (memory output).
+ * - `writeM`: A control signal indicating whether to write to RAM.
+ * - `addressM`: The memory address where data should be read/written.
+ *
+ * The program counter (PC) determines instruction flow:
+ * - It increments normally unless a jump condition is met.
+ * - It resets to address 0 when `reset=1`, restarting execution.
+ */
+
+CHIP CPU {
+
+    // Inputs from memory and ROM
+    IN
+        inM[16],         // Value from RAM[A] (M in Hack language)
+        instruction[16], // Current instruction from ROM (next command to execute)
+        reset;           // Reset signal: if 1, force PC to address 0
+
+    // Outputs controlling memory and program flow
+    OUT
+        outM[16],        // Value to be written to RAM[A]
+        writeM,          // Memory write enable signal (1 = write to RAM[A])
+        addressM[15],    // Address in RAM to read/write (lower 15 bits of A-register)
+        pc[15];          // Address of the next instruction (program counter)
+
+    PARTS:
+
+    // Identify if the instruction is an A-instruction (0) or C-instruction (1)
+    // - If `instruction[15]` is 0, it's an A-instruction (sets A-register).
+    // - If `instruction[15]` is 1, it's a C-instruction (performs computation).
+    Not(in=instruction[15], out=isA);
+
+    // A-instruction: Load the entire instruction value into A-register.
+    // C-instruction: Modify A-register only if `instruction[5]` is set.
+    Mux16(a=aluOut, b=instruction, sel=isA, out=aIn);
+    Or(a=isA, b=instruction[5], out=loadA);
+    ARegister(in=aIn, load=loadA, out=A, out[0..14]=addressM);
+
+    // Determine whether the ALU should use A-register or memory at A (M).
+    // - If `instruction[15] = 1` (C-instruction) and `instruction[12] = 1`,
+    //   then use `inM` (M) as the second ALU input.
+    // - Otherwise, use the A-register as the second ALU input.
+    And(a=instruction[15], b=instruction[12], out=useM);
+    Mux16(a=A, b=inM, sel=useM, out=aluY);
+
+    // ALU: Computes the result based on inputs D and (A or M).
+    // - ALU control bits (instruction[11:6]) determine the operation.
+    // - The ALU outputs:
+    //   - `aluOut`: The computed value (to be stored in D, A, or M).
+    //   - `outM`: Same as `aluOut`, but directly sent to memory.
+    //   - `zero`: 1 if the result is zero.
+    //   - `neg`: 1 if the result is negative.
+    ALU(
+        x=D,
+        y=aluY,
+        zx=instruction[11], nx=instruction[10],
+        zy=instruction[9], ny=instruction[8],
+        f=instruction[7], no=instruction[6],
+        out=aluOut, out=outM,
+        zr=zero, ng=neg
+    );
+
+    // Store ALU result in D-register if destination bit `instruction[4]` is set.
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    DRegister(in=aluOut, load=loadD, out=D);
+
+    // Enable memory write if:
+    // - This is a C-instruction (`instruction[15] = 1`).
+    // - The memory destination bit `instruction[3]` is set.
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    // Jump logic: Determines whether to load a new program counter value (PC).
+    // - Jumps occur based on the ALU result and jump bits (instruction[2:0]).
+    // - Possible jumps:
+    //   - JGT (jump if ALU result > 0)
+    //   - JEQ (jump if ALU result == 0)
+    //   - JLT (jump if ALU result < 0)
+
+    // Compute ALU result conditions
+    Not(in=neg, out=pos);    // ALU output is positive if not negative.
+    Not(in=zero, out=nonzero); // ALU output is nonzero if not zero.
+
+    // JGT (jump if greater than zero): Jump if ALU result is positive and nonzero.
+    And(a=instruction[15], b=instruction[0], out=jgt);
+    And(a=pos, b=nonzero, out=condJgt);
+    And(a=jgt, b=condJgt, out=jmpGt);
+
+    // JEQ (jump if equal to zero): Jump if ALU result is zero.
+    And(a=instruction[15], b=instruction[1], out=jeq);
+    And(a=jeq, b=zero, out=jmpEq);
+
+    // JLT (jump if less than zero): Jump if ALU result is negative.
+    And(a=instruction[15], b=instruction[2], out=jlt);
+    And(a=jlt, b=neg, out=jmpLt);
+
+    // Combine jump conditions:
+    // If any jump condition is met (JGT, JEQ, or JLT), set `loadPC = 1`.
+    Or(a=jmpGt, b=jmpEq, out=jmpAny);
+    Or(a=jmpLt, b=jmpAny, out=loadPC);
+
+    // Program Counter (PC):
+    // - If `loadPC = 1`, load the A-register value into PC (jump).
+    // - Otherwise, increment PC to fetch the next instruction.
+    // - If `reset = 1`, force PC to reset to address 0.
+    PC(in=A, load=loadPC, inc=true, reset=reset, out[0..14]=pc);
+}
+
