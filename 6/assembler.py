@@ -147,14 +147,64 @@ class Code:
         return self.jump_table[jump_m]
 
 
+class SymbolTable:
+    def __init__(self):
+        self.table = {
+            "R0": "0",
+            "R1": "1",
+            "R2": "2",
+            "R3": "3",
+            "R4": "4",
+            "R5": "5",
+            "R6": "6",
+            "R7": "7",
+            "R8": "8",
+            "R9": "9",
+            "R10": "10",
+            "R11": "11",
+            "R12": "12",
+            "R13": "13",
+            "R14": "14",
+            "R15": "15",
+            "SP": "0",
+            "LCL": "1",
+            "ARG": "2",
+            "THIS": "3",
+            "THAT": "4",
+            "SCREEN": "16384",
+            "KBD": "24576",
+        }
+
+    def addEntry(self, symbol, address):
+        self.table[symbol] = address
+
+    def contains(self, symbol):
+        return symbol in self.table
+
+    def getAddress(self, symbol):
+        return self.table[symbol]
+
+
 class Assembler:
     def __init__(self, filepath, writepath):
         self.parser = Parser(filepath)
         self.code = Code()
+        self.symboltable = SymbolTable()
         self.writepath = writepath
 
     def assemble(self):
         with open(self.writepath, "a") as file:
+            while self.parser.hasMoreCommands():
+                self.parser.advance()
+                type = self.parser.commandType()
+                romcounter = 0
+                if type == self.parser.CommandType.A_COMMAND:
+                    romcounter += 1
+                elif type == self.parser.CommandType.C_COMMAND:
+                    romcounter += 1
+                elif type == self.parser.CommandType.L_COMMAND:
+                    self.symboltable.addEntry(self.parser.symbol(), romcounter)
+
             while self.parser.hasMoreCommands():
                 self.parser.advance()
                 type = self.parser.commandType()
