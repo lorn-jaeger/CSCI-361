@@ -85,10 +85,50 @@ class Parser:
 
 class Code:
     def __init__(self):
-        pass
+        self.comp_table = {
+            "0": 0b0101010,
+            "1": 0b0111111,
+            "-1": 0b0111010,
+            "D": 0b0001100,
+            "A": 0b0110000,
+            "!D": 0b0001101,
+            "!A": 0b0110001,
+            "-D": 0b0001111,
+            "-A": 0b0110011,
+            "D+1": 0b0011111,
+            "A+1": 0b0110111,
+            "D-1": 0b0001110,
+            "A-1": 0b0110010,
+            "D+A": 0b0000010,
+            "D-A": 0b0010011,
+            "A-D": 0b0000111,
+            "D&A": 0b0000000,
+            "D|A": 0b0010101,
+            "M": 0b1110000,
+            "!M": 0b1110001,
+            "-M": 0b1110011,
+            "M+1": 0b1110111,
+            "M-1": 0b1110010,
+            "D+M": 0b1000010,
+            "D-M": 0b1010011,
+            "M-D": 0b1000111,
+            "D&M": 0b1000000,
+            "D|M": 0b1010101,
+        }
+
+        self.jump = {
+            "null": 0b000,
+            "JGT": 0b001,
+            "JEQ": 0b010,
+            "JGE": 0b011,
+            "JLT": 0b100,
+            "JNE": 0b101,
+            "JLE": 0b110,
+            "JMP": 0b111,
+        }
 
     def dest(self, dest_m):
-        dest = 0b00
+        dest = 0b000
         if "M" in dest_m:
             dest ^= 1 << 0
         if "D" in dest_m:
@@ -99,61 +139,39 @@ class Code:
         return dest
 
     def comp(self, comp_m):
-        comp = None
-
-        match comp_m:
-            case "0":
-                comp = 0b101010
-            case "1":
-                comp = 0b111111
-            case "-1":
-                comp = 0b111010
-            case "D":
-                comp = 0b001100
-            case "A":
-                comp = 0b1100
-            case "!D":
-                comp = 0b0101010
-            case "!A":
-                comp = 0b0101010
-            case "D+1":
-                comp = 0b0101010
-            case "A+1":
-                comp = 0b0101010
-            case "D-1":
-                comp = 0b0101010
-            case "A-1":
-                comp = 0b0101010
-            case "D+A":
-                comp = 0b0101010
-            case "D-A":
-                comp = 0b0101010
-            case "A-D":
-                comp = 0b0101010
-            case "D&A":
-                comp = 0b0101010
-            case "D|A":
-                comp = 0b0101010
-            case "M":
-                comp = 0b0101010
-            case "!M":
-                comp = 0b0101010
-            case "-M":
-                comp = 0b0101010
-            case "M+1":
-                comp = 0b0101010
-            case "M-1":
-                comp = 0b0101010
-            case "D+M":
-                comp = 0b0101010
-            case "D-M":
-                comp = 0b0101010
-            case "M-D":
-                comp = 0b0101010
-            case "D&M":
-                comp = 0b0101010
-            case "D|M":
-                comp = 0b0101010
+        return self.comp_table[comp_m]
 
     def jump(self, jump_m):
-        pass
+        return self.jump[jump_m]
+
+
+class Assembler:
+    def __init__(self, filepath, writepath):
+        self.parser = Parser(filepath)
+        self.code = Code()
+        self.writepath = writepath
+
+    def assemble(self):
+        with open("output.bin", "w") as file:
+            while self.parser.hasMoreCommands:
+                self.parser.advance()
+                type = self.parser.commandType()
+
+                if type == self.parser.CommandType.A_COMMAND:
+                    symbol = self.parser.symbol()
+                    line = bin(symbol)
+
+                elif type == self.parser.CommandType.C_COMMAND:
+                    dest = self.parser.dest()
+                    comp = self.parser.comp()
+                    jump = self.parser.jump()
+
+                    line = self.code.dest(dest)
+                    line += self.code.comp(comp)
+                    line += self.code.jump(jump)
+
+                elif type == self.parser.CommandType.L_COMMAND:
+                    symbol = self.parser.symbol()
+                    line = bin(symbol)
+
+                file.write(line)
