@@ -191,26 +191,42 @@ class Assembler:
         self.code = Code()
         self.symboltable = SymbolTable()
         self.writepath = writepath
+        self.filepath = filepath
 
     def assemble(self):
         with open(self.writepath, "a") as file:
+            # first pass
             while self.parser.hasMoreCommands():
                 self.parser.advance()
                 type = self.parser.commandType()
                 romcounter = 0
+                # if a or c instruction pass and increment romcounter
                 if type == self.parser.CommandType.A_COMMAND:
                     romcounter += 1
                 elif type == self.parser.CommandType.C_COMMAND:
                     romcounter += 1
+                # if l instruction add to symbol table at next rom counter
                 elif type == self.parser.CommandType.L_COMMAND:
                     self.symboltable.addEntry(self.parser.symbol(), romcounter)
 
+            self.parser = Parser(self.filepath)
             while self.parser.hasMoreCommands():
+                # next available ram position
+                nextram = 16
                 self.parser.advance()
                 type = self.parser.commandType()
                 line = None
+                # if the instruction is an a instruction
                 if type == self.parser.CommandType.A_COMMAND:
                     symbol = self.parser.symbol()
+                    # if the instruction is symbolic then check if it is in
+                    # the symbol table then get the address no matter what
+                    if symbol.isalpha():
+                        if not self.symboltable.contains(symbol):
+                            self.symboltable.addEntry(symbol, nextram)
+                            nextram += 1
+                        symbol = self.symboltable.getAddress(symbol)
+                    # conver to instruction format
                     line = bin(int(symbol))[2:].zfill(16)
 
                 elif type == self.parser.CommandType.C_COMMAND:
@@ -223,10 +239,6 @@ class Assembler:
                     jump = self.code.jump(jump)
 
                     line = "111" + comp + dest + jump
-
-                elif type == self.parser.CommandType.L_COMMAND:
-                    symbol = self.parser.symbol()
-                    line = bin(int(symbol))[2:]
 
                 if line:
                     file.write(line + "\n")
