@@ -1,83 +1,194 @@
-def getPushD():
-    asm = [
-        "@SP",
-        "A=M",
-        "M=D",
-        "@SP",
-        "M=M+1",
-    ]
+import os
+import sys
 
-    return ",".join(asm) + ","
+# Translation dictionaries
+ARITH_BINARY = {
+    "add": ["@SP", "AM=M-1", "D=M", "A=A-1", "M=D+M"],
+    "sub": ["@SP", "AM=M-1", "D=M", "A=A-1", "M=M-D"],
+    "and": ["@SP", "AM=M-1", "D=M", "A=A-1", "M=D&M"],
+    "or": ["@SP", "AM=M-1", "D=M", "A=A-1", "M=D|M"],
+}
+
+ARITH_UNARY = {
+    "neg": ["@SP", "A=M-1", "M=-M"],
+    "not": ["@SP", "A=M-1", "M=!M"],
+}
+
+ARITH_TEST = {
+    "eq": "JEQ",
+    "gt": "JGT",
+    "lt": "JLT",
+}
+
+SEGLABEL = {
+    "local": "LCL",
+    "argument": "ARG",
+    "this": "THIS",
+    "that": "THAT",
+}
+
+SEGMENTS = {
+    "local": "pointer",
+    "argument": "pointer",
+    "this": "pointer",
+    "that": "pointer",
+    "temp": "fixed",
+    "pointer": "fixed",
+    "static": "constant",
+    "constant": "constant",
+}
+
+LABEL_NUMBER = 0
+
+
+def getPushD():
+    return ["@SP", "A=M", "M=D", "@SP", "M=M+1"]
 
 
 def getPopD():
-    asm = [
-        "@SP",
-        "AM=M-1",
-        "D=M",
-    ]
-
-    return ",".join(asm) + ","
+    return ["@SP", "AM=M-1", "D=M"]
 
 
 def setDtoPointer(base, i):
-    asm = [
-        f"@{base}",  # access pointer, A is pointer index in memory and M is the offset stored in the pointer
-        "D=M",  # store the pointer
-        f"@{i}",  # store the offset in A and add it to D
-        "A=D+A",
-        "D=M",  # store the value at base + i in D
-    ]
-
-    return ",".join(asm) + ","
+    return [f"@{base}", "D=M", f"@{i}", "A=D+A", "D=M"]
 
 
 def setPointerToD(base, i):
-    asm = [f"@{base}", "D=D+M", f"@{i}", "D=D+A", "@SP", "A=M", "A=M", "A=D-A", "M=D-A"]
-
-    return ",".join(asm) + ","
+    return [
+        "@R13",
+        "M=D",
+        f"@{base}",
+        "D=M",
+        f"@{i}",
+        "D=D+A",
+        "@R14",
+        "M=D",
+        "@R13",
+        "D=M",
+        "@R14",
+        "A=M",
+        "M=D",
+    ]
 
 
 def pointerSeg(pushpop, seg, index):
-    """This function returns Hack ML code to push a memory location to
-    to the stack, or pop the stack to a memory location.
-
-    INPUTS:
-        pushpop = a text string 'pop' means pop to memory location, 'push'
-                  is push memory location onto stack
-        seg     = the name of the segment that will be be the base address
-                  in the form of a text string
-        index   = an integer that specifies the offset from the base
-                  address specified by seg
-
-    RETURN:
-        The memory address is speficied by segment's pointer (SEGLABEL[seg]) + index (index))
-        if pushpop is 'push', push the address contents to the stack
-        if pushpop is 'pop' then pop the stack to the memory address.
-        The string returned accomplishes this. ML commands are seperated by commas (,).
-
-    NOTE: This function will only be called if the seg is one of:
-    "local", "argument", "this", "that"
-    """
-
-    """
-    if we are pushing put the seg + index into D
-    if we are popping, pop a value off the stack and take D and set the seg + 
-    index
-    """
-    assert seg in ["local", "argument", "this", "that"] and pushpop in ["push", "pop"]
-
-    seg_map = {"local": "LCL", "argument": "ARG", "this": "THIS", "that": "THAT"}
-
-    pointer = seg_map[seg]
-
+    base = SEGLABEL[seg]
     if pushpop == "push":
-        asm = setDtoPointer(pointer, index) + getPushD()
-    if pushpop == "pop":
-        asm = getPopD() + setPointerToD(pointer, index)
-
+        asm = setDtoPointer(base, index) + getPushD()
+    else:
+        asm = getPopD() + setPointerToD(base, index)
     return asm
 
 
-print(pointerSeg("push", "this", 5))
-print(pointerSeg("pop", "this", 5))
+def fixedSeg(pushpop, seg, index):
+    base = 5 if seg == "temp" else 3  # pointer base is 3 (THIS/THAT)
+    if pushpop == "push":
+        asm = [f"@{base}", "D=A", f"@{index}", "A=D+A", "D=M"] + getPushD()
+    else:
+        asm = getPopD() + [
+            f"@{base}",
+            "D=A",
+            f"@{index}",
+            "D=D+A",
+            "@R13",
+            "M=D",
+            "@SP",
+            "A=M",
+            "D=M",
+            "@R13",
+            "A=M",
+            "M=D",
+        ]
+    return asm
+
+
+def constantSeg(pushpop, seg, index):
+    if seg == "constant":
+        return [f"@{index}", "D=A"] + getPushD()
+    else:  # static
+        filename = os.path.splitext(os.path.basename(sys.argv[1]))[0]
+        symbol = f"{filename}.{index}"
+        if pushpop == "push":
+            return [f"@{symbol}", "D=M"] + getPushD()
+        else:
+            return getPopD() + [f"@{symbol}", "M=D"]
+
+
+def generateComparison(op):
+    true_label = uniqueLabel()
+    end_label = uniqueLabel()
+    jump_cond = ARITH_TEST[op]
+    return [
+        *getPopD(),
+        "@SP",
+        "A=M-1",
+        "D=M-D",
+        f"@{true_label}",
+        f"D;{jump_cond}",
+        "@SP",
+        "A=M-1",
+        "M=0",
+        f"@{end_label}",
+        "0;JMP",
+        f"({true_label})",
+        "@SP",
+        "A=M-1",
+        "M=-1",
+        f"({end_label})",
+    ]
+
+
+def uniqueLabel():
+    global LABEL_NUMBER
+    label = f"LABEL_{LABEL_NUMBER}"
+    LABEL_NUMBER += 1
+    return label
+
+
+def line2Command(line):
+    return line.split("//")[0].strip()
+
+
+def ParseFile(f):
+    out = []
+    for line in f:
+        command = line2Command(line)
+        if not command:
+            continue
+
+        args = command.split()
+        if args[0] in ARITH_BINARY:
+            out.extend(ARITH_BINARY[args[0]])
+        elif args[0] in ARITH_UNARY:
+            out.extend(ARITH_UNARY[args[0]])
+        elif args[0] in ARITH_TEST:
+            out.extend(generateComparison(args[0]))
+        elif args[0] in ["push", "pop"]:
+            seg_type = SEGMENTS.get(args[1], None)
+            if seg_type == "pointer":
+                out.extend(pointerSeg(args[0], args[1], int(args[2])))
+            elif seg_type == "fixed":
+                out.extend(fixedSeg(args[0], args[1], int(args[2])))
+            elif seg_type == "constant":
+                out.extend(constantSeg(args[0], args[1], int(args[2])))
+            else:
+                print(f"Unknown segment: {args[1]}")
+                sys.exit(1)
+        else:
+            print(f"Unknown command: {args[0]}")
+            sys.exit(1)
+
+    # Add infinite loop at end
+    end_label = uniqueLabel()
+    out.extend([f"({end_label})", f"@{end_label}", "0;JMP"])
+
+    return "\n".join(out)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python vm_translator.py <file.vm>")
+        sys.exit(1)
+
+    with open(sys.argv[1]) as f:
+        print(ParseFile(f))
