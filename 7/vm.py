@@ -1,7 +1,6 @@
 import os
 import sys
 
-# Translation dictionaries
 ARITH_BINARY = {
     "add": ["@SP", "AM=M-1", "D=M", "A=A-1", "M=D+M"],
     "sub": ["@SP", "AM=M-1", "D=M", "A=A-1", "M=M-D"],
@@ -75,13 +74,13 @@ def pointerSeg(pushpop, seg, index):
     base = SEGLABEL[seg]
     if pushpop == "push":
         asm = setDtoPointer(base, index) + getPushD()
-    else:
+    elif pushpop == "pop":
         asm = getPopD() + setPointerToD(base, index)
     return asm
 
 
 def fixedSeg(pushpop, seg, index):
-    base = 5 if seg == "temp" else 3  # pointer base is 3 (THIS/THAT)
+    base = 5 if seg == "temp" else 3
     if pushpop == "push":
         asm = [f"@{base}", "D=A", f"@{index}", "A=D+A", "D=M"] + getPushD()
     else:
@@ -99,13 +98,14 @@ def fixedSeg(pushpop, seg, index):
             "A=M",
             "M=D",
         ]
+
     return asm
 
 
 def constantSeg(pushpop, seg, index):
     if seg == "constant":
         return [f"@{index}", "D=A"] + getPushD()
-    else:  # static
+    else:
         filename = os.path.splitext(os.path.basename(sys.argv[1]))[0]
         symbol = f"{filename}.{index}"
         if pushpop == "push":
@@ -178,7 +178,6 @@ def ParseFile(f):
             print(f"Unknown command: {args[0]}")
             sys.exit(1)
 
-    # Add infinite loop at end
     end_label = uniqueLabel()
     out.extend([f"({end_label})", f"@{end_label}", "0;JMP"])
 
@@ -187,7 +186,7 @@ def ParseFile(f):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python vm_translator.py <file.vm>")
+        print("wrong!")
         sys.exit(1)
 
     with open(sys.argv[1]) as f:
