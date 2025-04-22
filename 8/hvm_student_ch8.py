@@ -117,11 +117,14 @@ def getCall(function, nargs):
     label = uniqueLabel()
 
     return [
+        # save return address
         *_getPushLabel(label),
+        # save callers segment pointers
         *_getPushMem("LCL"),
         *_getPushMem("ARG"),
         *_getPushMem("THIS"),
         *_getPushMem("THAT"),
+        # set ARG = SP - 5 - nargs
         "@SP",
         "D=M",
         f"@{nargs}",
@@ -130,11 +133,14 @@ def getCall(function, nargs):
         "D=D-A",
         "@ARG",
         "M=D",
+        # set LCL = SP
         "@SP",
         "D=M",
         "@LCL",
         "M=D",
+        # got to callee's code
         *getGoto(function),
+        # return label
         *getLabel(label),
     ]
 
